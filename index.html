@@ -67,6 +67,30 @@ td input.dirty{border-color:var(--input)}
 tfoot td{background:var(--panel2);font-weight:600;position:sticky;bottom:0}
 .note{color:var(--muted);font-size:11.5px;margin-top:10px;max-width:80ch}
 @media (prefers-reduced-motion:no-preference){.chip,.btn{transition:border-color .12s}}
+
+/* closing timeline */
+.tl{border:1px solid var(--line);border-radius:6px;background:var(--panel);margin-bottom:12px;position:relative}
+.tlhead{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:9px 14px;border-bottom:1px solid var(--line)}
+.tlhead h2{font-size:12px;font-weight:600;color:var(--muted);margin:0}
+.tlhead .sp{flex:1}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:5px;overflow:hidden}
+.seg button{background:transparent;border:0;padding:3px 9px;color:var(--muted);cursor:pointer}
+.seg button.on{background:var(--panel2);color:var(--text)}
+#tlChart{padding:6px 8px 2px;overflow-x:auto}
+#tlChart svg{display:block;font-size:11px;font-family:inherit}
+#tlChart text{font-variant-numeric:tabular-nums}
+#tlChart .lab{paint-order:stroke;stroke:var(--panel);stroke-width:3px;stroke-linejoin:round;fill:var(--text);font-size:10.5px}
+#tlChart .hit{fill:transparent;cursor:pointer}
+#tlChart .bub.dim{opacity:.25}
+.lg{display:flex;flex-wrap:wrap;gap:6px 18px;padding:2px 14px 10px;color:var(--muted);font-size:11px;align-items:center}
+.lg i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:-1px;border:1px solid var(--muted)}
+.lg i.sq{border-radius:2px;border:0}
+.lg i.grad{width:56px;border-radius:2px;border:0}
+.tip{position:absolute;pointer-events:none;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:11.5px;min-width:210px;max-width:320px;box-shadow:0 4px 14px rgba(0,0,0,.25);z-index:5}
+.tip b{display:block;font-size:12.5px;margin-bottom:3px}
+.tip .r{display:flex;justify-content:space-between;gap:14px}.tip .r span:first-child{color:var(--muted)}
+.tip hr{border:0;border-top:1px solid var(--line);margin:5px 0}
+table.deals tr.hl td{background:var(--panel2);box-shadow:inset 3px 0 0 var(--input)}
 </style>
 </head>
 <body>
@@ -112,6 +136,19 @@ tfoot td{background:var(--panel2);font-weight:600;position:sticky;bottom:0}
     <span class="sp"></span>
     <span class="sub" id="cnt"></span>
   </div>
+  <section class="tl" id="tl">
+    <div class="tlhead">
+      <h2>Closing timeline</h2>
+      <div class="seg" id="tlY"><button data-y="spread" class="on">Gross spread</button><button data-y="ann">Annualised</button></div>
+      <div class="seg" id="tlB"><button data-b="month" class="on">By month</button><button data-b="quarter">By quarter</button></div>
+      <span class="sp"></span>
+      <span class="sub" id="tlSub"></span>
+      <button class="btn" id="tlToggle">Hide</button>
+    </div>
+    <div id="tlChart"></div>
+    <div class="lg" id="tlLg"></div>
+    <div class="tip" id="tip" hidden></div>
+  </section>
   <div class="tbl"><table class="deals" id="t"><thead></thead><tbody></tbody><tfoot></tfoot></table></div>
   <p class="note">Amber cells are inputs. Size is in whatever unit you like (set 0 to exclude). Break price blank = target price × (1 − default downside). P(no-deal) blank = implied. Gross spread = (offer + net dvd − price) / price, JPM's dvd-adjusted convention; annualised = spread × day count / days to expected close. Inputs persist in this browser.</p>
 </main>
@@ -188,16 +225,16 @@ function render(){
   const s=compute(); summary(s);
   const th=$('#t thead'); th.innerHTML='<tr>'+COLS.map(c=>`<th class="${c.cls||''} ${sortKey===c.k?'sorted':''}" data-k="${c.k}">${c.l}${sortKey===c.k?(sortDir>0?' ▲':' ▼'):''}</th>`).join('')+'</tr>';
   const rows=visible().slice().sort((a,b)=>{const va=sv(a,sortKey),vb=sv(b,sortKey);return (va>vb?1:va<vb?-1:0)*sortDir});
-  $('#t tbody').innerHTML=rows.map(d=>`<tr class="${+d.size>0?'':'off'}">`+COLS.map(c=>`<td class="${c.cl||''}">${c.r(d)}</td>`).join('')+'</tr>').join('');
+  $('#t tbody').innerHTML=rows.map(d=>`<tr data-id="${d.id}" class="${+d.size>0?'':'off'}">`+COLS.map(c=>`<td class="${c.cl||''}">${c.r(d)}</td>`).join('')+'</tr>').join('');
   $('#cnt').textContent=`${rows.length} of ${deals.length} deals`;
   $('#t tfoot').innerHTML=`<tr><td class="l" colspan="6">Size-weighted, all deals</td><td>${pct(wavg('spread'),true)}</td><td>${isFinite(wavg('days'))?wavg('days').toFixed(0):'–'}</td><td>${pct(wavg('ann'),true)}</td><td></td><td>${fmtN(s.tot)}</td><td></td><td>${pct(1-wavg('pnd'))}</td><td>${pct(wavg('pndUsed'))}</td><td>${pct(wavg('down'),true)}</td><td>${pct(wavg('er'),true)}</td><td>${pct(wavg('erAnn'),true)}</td><td>100%</td><td></td></tr>`;
-  save();
+  renderTimeline(); save();
 }
 function sv(d,k){if(k in d.c)return d.c[k]; if(k==='brkEff')return d.c.brk; if(k==='size')return +d.size||0; if(k==='close')return new Date(d.close).getTime(); if(k==='jpm')return d.jpm==null?-9:d.jpm; const v=d[k]; return typeof v==='string'?v.toLowerCase():(v==null?-Infinity:v)}
 // events
 $('#t').addEventListener('input',e=>{const el=e.target; if(!el.dataset.f)return; const d=deals.find(x=>x.id===el.dataset.i); let v=el.value.trim()===''?null:+el.value; if(el.dataset.f==='pnd'&&v!=null)v=v/100; d[el.dataset.f]=v; el.classList.toggle('dirty',v!=null);
   const s=compute(); summary(s); // light refresh without re-rendering inputs
-  const tr=el.closest('tr'); const cells=tr.children; COLS.forEach((c,i)=>{if(!['size','brk','pndUsed'].includes(c.k)&&!c.cls)cells[i].innerHTML=c.r(d)}); save();});
+  const tr=el.closest('tr'); const cells=tr.children; COLS.forEach((c,i)=>{if(!['size','brk','pndUsed'].includes(c.k)&&!c.cls)cells[i].innerHTML=c.r(d)}); renderTimeline(); save();});
 $('#t').addEventListener('change',()=>render());
 $('#t thead').addEventListener('click',e=>{const k=e.target.closest('th')?.dataset.k;if(!k)return; if(sortKey===k)sortDir*=-1; else{sortKey=k;sortDir=['target','ticker','terms','cond'].includes(k)?1:-1} render()});
 ['#valDate','#dd','#dc'].forEach(s=>$(s).addEventListener('input',render));
@@ -244,6 +281,103 @@ $('#export').onclick=()=>{
   const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(sum),'Summary'); XLSX.utils.book_append_sheet(wb,ws,'Deals');
   XLSX.writeFile(wb,'EMEA_Risk_Arb_book.xlsx'); status('Exported (values, not formulas).');
 };
+// ---- closing timeline ----
+const TL={y:'spread',bucket:'month',open:true};
+function cssVar(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
+function hex2rgb(h){h=h.replace('#','');if(h.length===3)h=h.split('').map(c=>c+c).join('');const n=parseInt(h,16);return [n>>16&255,n>>8&255,n&255]}
+function mix(a,b,t){const A=hex2rgb(a),B=hex2rgb(b);return 'rgb('+A.map((v,i)=>Math.round(v+(B[i]-v)*t)).join(',')+')'}
+function niceStep(r,n){const raw=r/n,p=Math.pow(10,Math.floor(Math.log10(raw))),m=raw/p;return (m<=1?1:m<=2?2:m<=2.5?2.5:m<=5?5:10)*p}
+function esc(x){return String(x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')}
+function bucketOf(dt){const d=new Date(dt);return TL.bucket==='month'?`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`:`${d.getFullYear()}-Q${Math.floor(d.getMonth()/3)+1}`}
+function bucketRange(k){if(TL.bucket==='month'){const [y,m]=k.split('-').map(Number);return [new Date(y,m-1,1),new Date(y,m,1)]}const [y,q]=k.split('-Q').map(Number);return [new Date(y,(q-1)*3,1),new Date(y,q*3,1)]}
+function bucketLabel(k){if(TL.bucket==='month'){const [y,m]=k.split('-').map(Number);return new Date(y,m-1,1).toLocaleDateString('en-GB',{month:'short',year:'2-digit'})}return k.replace('-',' ')}
+function pnl(d,k){return (+d.size||0)*d.c[k]}
+function renderTimeline(){
+  const host=$('#tlChart'); if(!TL.open){host.innerHTML='';$('#tlLg').innerHTML='';return}
+  const rows=visible(); if(!rows.length){host.innerHTML='<p class="note">No deals to show.</p>';$('#tlLg').innerHTML='';return}
+  const W=Math.max(640,host.clientWidth-16);
+  const sized=rows.filter(d=>+d.size>0), pool=sized.length?sized:rows;
+  const val=new Date($('#valDate').value), dc=+$('#dc').value;
+  const tmax=rows.reduce((m,d)=>Math.max(m,new Date(d.close).getTime()),val.getTime());
+  const x0=new Date(val.getFullYear(),val.getMonth(),1).getTime(); const e=new Date(tmax); const x1=new Date(e.getFullYear(),e.getMonth()+1,1).getTime();
+  const ML=60,MR=24,MT=22,H1=240,GAP=44,H2=150,MB=8,pw=W-ML-MR,H=MT+H1+GAP+H2+MB, A0=MT,A1=MT+H1, B0=MT+H1+GAP, B1=B0+H2;
+  const X=t=>ML+(Math.min(Math.max(t,x0),x1)-x0)/(x1-x0)*pw;
+  const C={pos:cssVar('--pos'),neg:cssVar('--neg'),line:cssVar('--line'),muted:cssVar('--muted'),text:cssVar('--text'),panel:cssVar('--panel'),panel2:cssVar('--panel2'),input:cssVar('--input')};
+  // panel A: spread at expected close
+  const yk=TL.y, vals=pool.map(d=>d.c[yk]).filter(isFinite);
+  // signed square-root scale: keeps the 0-5% mass legible next to 30% outliers
+  const sq=v=>Math.sign(v)*Math.sqrt(Math.abs(v));
+  let lo=Math.min(0,...vals.map(sq)),hi=Math.max(0,...vals.map(sq)); if(hi-lo<1e-6)hi=lo+0.2; const pad=(hi-lo)*0.1; lo-=pad; hi+=pad;
+  const Y1=v=>A1-(Math.min(Math.max(sq(v),lo),hi)-lo)/(hi-lo)*H1;
+  const maxSize=Math.max(1e-9,...sized.map(d=>+d.size)); const R=d=>+d.size>0?4+8*Math.sqrt(+d.size/maxSize):3.5;
+  const maxPnd=Math.max(0.01,...sized.map(d=>d.c.pndUsed)); const rf=d=>mix(C.panel2,C.neg,0.15+0.85*Math.min(1,d.c.pndUsed/maxPnd));
+  let s=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Closing timeline">`;
+  // shared x grid + month labels in the gap
+  const months=[]; for(let t=new Date(x0);t.getTime()<x1;t=new Date(t.getFullYear(),t.getMonth()+1,1))months.push(t);
+  const every=Math.max(1,Math.ceil(months.length/Math.floor(pw/46)));
+  months.forEach((m,i)=>{const x=X(m.getTime()), q=m.getMonth()%3===0;
+    s+=`<line x1="${x}" x2="${x}" y1="${A0}" y2="${A1}" stroke="${C.line}" stroke-width="${q?1:0.5}"/><line x1="${x}" x2="${x}" y1="${B0}" y2="${B1}" stroke="${C.line}" stroke-width="${q?1:0.5}"/>`;
+    if(i%every===0){const lab=(i===0||m.getMonth()===0)?m.toLocaleDateString('en-GB',{month:'short',year:'2-digit'}):m.toLocaleDateString('en-GB',{month:'short'});s+=`<text x="${x+3}" y="${A1+15}" fill="${C.muted}">${lab}</text>`}});
+  s+=`<line x1="${ML}" x2="${W-MR}" y1="${A1}" y2="${A1}" stroke="${C.line}"/><line x1="${ML}" x2="${W-MR}" y1="${B1}" y2="${B1}" stroke="${C.line}"/>`;
+  // y axis A
+  const TK=[0.005,0.01,0.02,0.03,0.05,0.1,0.2,0.3,0.5,1,2,3,5]; const ticks=[0,...TK.filter(v=>sq(v)<=hi),...TK.filter(v=>-sq(v)>=lo).map(v=>-v)];
+  let lastY=-1e9; ticks.sort((a,b)=>a-b).forEach(v=>{const y=Y1(v); const z=v===0; if(!z&&Math.abs(y-lastY)<13)return; lastY=y; s+=`<line x1="${ML}" x2="${W-MR}" y1="${y}" y2="${y}" stroke="${z?C.muted:C.line}" stroke-width="${z?1:0.5}"/><text x="${ML-6}" y="${y+4}" text-anchor="end" fill="${C.muted}">${(v*100).toFixed(Math.abs(v)<0.01&&v!==0?1:0)}%</text>`});
+  s+=`<text x="${ML}" y="${A0-8}" fill="${C.muted}">${yk==='spread'?'Gross spread':'Annualised spread'} at expected close (square-root scale) · bubble area = size · fill = P(no-deal) used</text>`;
+  // valuation date marker
+  const xv=X(val.getTime()); s+=`<line x1="${xv}" x2="${xv}" y1="${A0}" y2="${B1}" stroke="${C.input}" stroke-width="1" opacity=".8"/><text x="${xv+3}" y="${A0+10}" fill="${C.input}">val.</text>`;
+  // bubbles: unsized first, then sized big->small; dodge same-day overlaps sideways
+  const pts=rows.slice().sort((a,b)=>((+a.size>0)-(+b.size>0))||(R(b)-R(a))).map(d=>({d,x:X(new Date(d.close).getTime()),y:Y1(d.c[yk]),r:R(d),on:+d.size>0}));
+  const hit=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y)<a.r+b.r+1;
+  const placedPts=[]; pts.filter(p=>p.on).forEach(p=>{const bx=p.x;let k=0;while(placedPts.some(q=>hit(p,q))&&k<2){k++;p.x=bx+(k%2?1:-1)*(p.r*1.1)}if(placedPts.some(q=>hit(p,q)))p.x=bx;placedPts.push(p)});
+  pts.forEach(p=>{const d=p.d; s+=p.on
+    ?`<circle cx="${p.x}" cy="${p.y}" r="${p.r+1.5}" fill="${C.panel}"/><circle class="bub" cx="${p.x}" cy="${p.y}" r="${p.r}" fill="${rf(d)}" stroke="${C.neg}" stroke-width="1"/>`
+    :`<circle class="bub" cx="${p.x}" cy="${p.y}" r="${p.r}" fill="none" stroke="${C.muted}" stroke-width="1"/>`});
+  // labels: greedy placement, strict pass then loose pass (may sit over bubbles, never over other labels)
+  const ov=(a,b)=>!(a.x+a.w<b.x||b.x+b.w<a.x||a.y+a.h<b.y||b.y+b.h<a.y);
+  const bubBox=pts.filter(p=>p.on).map(p=>({p,x:p.x-p.r,y:p.y-p.r,w:2*p.r,h:2*p.r})); const labs=[];
+  [false,true].forEach(loose=>pts.filter(p=>p.on&&!p.lab).forEach(p=>{const t=(p.d.ticker||p.d.target).split(' ')[0], w=t.length*6.4, h=11;
+    const cands=[{x:p.x+p.r+3,y:p.y+4,a:'start'},{x:p.x-p.r-3,y:p.y+4,a:'end'},{x:p.x,y:p.y-p.r-4,a:'middle'},{x:p.x,y:p.y+p.r+11,a:'middle'}];
+    for(const c of cands){const bx={x:c.a==='start'?c.x:c.a==='end'?c.x-w:c.x-w/2,y:c.y-h+2,w,h};
+      if(bx.x<ML||bx.x+bx.w>W-MR||bx.y<A0||bx.y+bx.h>A1)continue;
+      if(labs.some(b=>ov(b,bx))||(!loose&&bubBox.some(b=>b.p!==p&&ov(b,bx))))continue;
+      labs.push(bx); p.lab=`<text class="lab" x="${c.x}" y="${c.y}" text-anchor="${c.a}">${esc(t)}</text>`; break}}));
+  pts.forEach(p=>{if(p.lab)s+=p.lab});
+  // panel B: P&L by closing bucket
+  const B={}; sized.forEach(d=>{const k=bucketOf(d.close);const b=B[k]=B[k]||{k,up:0,dn:0,ex:0,size:0,n:[]};b.up+=pnl(d,'spread');b.dn+=pnl(d,'down');b.ex+=pnl(d,'er');b.size+=+d.size;b.n.push(d)});
+  const bk=Object.values(B); let blo=Math.min(0,...bk.map(b=>Math.min(b.dn,b.up,b.ex))), bhi=Math.max(0,...bk.map(b=>Math.max(b.up,b.ex,b.dn))); if(bhi-blo<1e-9)bhi=blo+1; const bp=(bhi-blo)*0.12; blo-=bp; bhi+=bp;
+  const Y2=v=>B1-(v-blo)/(bhi-blo)*H2;
+  const st2=niceStep(bhi-blo,4), j0=Math.ceil(blo/st2), j1=Math.floor(bhi/st2);
+  for(let j=j0;j<=j1;j++){const v=j*st2,y=Y2(v);s+=`<line x1="${ML}" x2="${W-MR}" y1="${y}" y2="${y}" stroke="${j===0?C.muted:C.line}" stroke-width="${j===0?1:0.5}"/><text x="${ML-6}" y="${y+4}" text-anchor="end" fill="${C.muted}">${fmtN(v)}</text>`}
+  s+=`<text x="${ML}" y="${B0-8}" fill="${C.muted}">P&amp;L by closing ${TL.bucket} (size × spread if it closes, size × downside if it breaks; tick = expected P&amp;L with P(no-deal) used)</text>`;
+  const y0=Y2(0);
+  bk.forEach(b=>{const [a,z]=bucketRange(b.k); const xa=X(a.getTime())+2, xz=X(z.getTime())-2, w=Math.max(2,xz-xa);
+    const yu=Y2(b.up), yd=Y2(b.dn);
+    s+=`<rect x="${xa}" y="${Math.min(yu,y0)}" width="${w}" height="${Math.max(1,Math.abs(yu-y0)-1)}" rx="3" fill="${C.pos}" opacity=".85"/>`;
+    s+=`<rect x="${xa}" y="${y0+1}" width="${w}" height="${Math.max(1,Math.abs(yd-y0)-1)}" rx="3" fill="${C.neg}" opacity=".85"/>`;
+    const ye=Y2(b.ex); s+=`<line x1="${xa}" x2="${xa+w}" y1="${ye}" y2="${ye}" stroke="${C.text}" stroke-width="2"/>`;
+    if(w>=34){s+=`<text class="lab" x="${xa+w/2}" y="${yu-4}" text-anchor="middle">${fmtN(b.up)}</text><text class="lab" x="${xa+w/2}" y="${yd+12}" text-anchor="middle">${fmtN(b.dn)}</text>`}
+    s+=`<rect class="hit" data-b="${b.k}" x="${xa}" y="${B0}" width="${w}" height="${H2}"/>`});
+  // hit targets for bubbles (on top of everything)
+  pts.forEach(p=>{s+=`<circle class="hit" data-id="${esc(p.d.id)}" cx="${p.x}" cy="${p.y}" r="${Math.max(p.r+2,12)}"/>`});
+  s+='</svg>'; host.innerHTML=s;
+  const totUp=sized.reduce((a,d)=>a+pnl(d,'spread'),0), totDn=sized.reduce((a,d)=>a+pnl(d,'down'),0), totEx=sized.reduce((a,d)=>a+pnl(d,'er'),0);
+  $('#tlSub').innerHTML=`${sized.length} sized deals · if all close <span class="pos">${fmtN(totUp)}</span> · if all break <span class="neg">${fmtN(totDn)}</span> · expected <span class="${totEx>=0?'pos':'neg'}">${fmtN(totEx)}</span>`;
+  $('#tlLg').innerHTML=`<span><i style="background:${rf({c:{pndUsed:0}})};border-color:${C.neg}"></i>low P(no-deal)</span><span><i class="grad" style="background:linear-gradient(90deg,${rf({c:{pndUsed:0}})},${C.neg})"></i>0 → ${(maxPnd*100).toFixed(0)}% P(no-deal) used</span><span><i style="background:none"></i>size 0 (excluded, clamped to axis)</span><span><i class="sq" style="background:${C.pos}"></i>P&amp;L if closes</span><span><i class="sq" style="background:${C.neg}"></i>loss if breaks</span><span><i class="sq" style="background:${C.text};height:2px;vertical-align:2px"></i>expected P&amp;L</span><span>Same-day closes may be nudged one bubble-width sideways; hover for exact values, click a bubble to jump to its row.</span>`;
+  host.querySelectorAll('.hit').forEach(el=>{el.addEventListener('mouseenter',ev=>showTip(el,ev));el.addEventListener('mousemove',ev=>moveTip(ev));el.addEventListener('mouseleave',hideTip);
+    if(el.dataset.id)el.addEventListener('click',()=>{const tr=document.querySelector(`tr[data-id="${CSS.escape(el.dataset.id)}"]`);if(!tr)return;tr.scrollIntoView({block:'center',behavior:'smooth'});document.querySelectorAll('tr.hl').forEach(x=>x.classList.remove('hl'));tr.classList.add('hl');setTimeout(()=>tr.classList.remove('hl'),2500)})});
+  function showTip(el,ev){const tip=$('#tip'); const row=(l,v)=>`<div class="r"><span>${l}</span><span>${v}</span></div>`;
+    if(el.dataset.id){const d=deals.find(x=>x.id===el.dataset.id); if(!d)return; const sz=+d.size||0;
+      tip.innerHTML=`<b>${esc(d.target)} <span class="sub">${esc(d.ticker)}</span></b><div class="sub">${esc(d.acq)} · ${esc(d.terms)}</div><hr>`+row('Expected close',`${fmtD(d.close)} (${d.c.days.toFixed(0)} d)`)+row('Size',fmtN(sz))+row('Gross spread',pct(d.c.spread,true))+row('Annualised',pct(d.c.ann,true))+row('P(no-deal) used',pct(d.c.pndUsed)+(d.pnd!=null&&d.pnd!==''?' (override)':' (implied)'))+row('Downside if break',pct(d.c.down,true))+'<hr>'+row('P&amp;L if closes',`<span class="pos">${fmtN(sz*d.c.spread)}</span>`)+row('Loss if breaks',`<span class="neg">${fmtN(sz*d.c.down)}</span>`)+row('Expected P&amp;L',`<span class="${sz*d.c.er>=0?'pos':'neg'}">${fmtN(sz*d.c.er)}</span>`)}
+    else{const b=B[el.dataset.b]; if(!b)return; const lst=b.n.slice().sort((a,c)=>new Date(a.close)-new Date(c.close)).map(d=>row(`${fmtD(d.close)} ${esc((d.ticker||d.target).split(' ')[0])}`,`${fmtN(+d.size)} · ${pct(d.c.spread,true)} · <span class="neg">${fmtN(pnl(d,'down'))}</span>`)).join('');
+      tip.innerHTML=`<b>${bucketLabel(b.k)} · ${b.n.length} deal${b.n.length>1?'s':''}</b>`+row('Size closing',fmtN(b.size))+row('P&amp;L if all close',`<span class="pos">${fmtN(b.up)}</span>`)+row('Loss if all break',`<span class="neg">${fmtN(b.dn)}</span>`)+row('Expected P&amp;L',`<span class="${b.ex>=0?'pos':'neg'}">${fmtN(b.ex)}</span>`)+'<hr><div class="sub">close · ticker → size · spread · loss if break</div>'+lst}
+    tip.hidden=false; moveTip(ev)}
+  function moveTip(ev){const tip=$('#tip'), box=$('#tl').getBoundingClientRect(); let x=ev.clientX-box.left+14, y=ev.clientY-box.top+14; if(x+tip.offsetWidth>box.width-8)x=ev.clientX-box.left-tip.offsetWidth-14; if(y+tip.offsetHeight>box.height-8)y=Math.max(4,ev.clientY-box.top-tip.offsetHeight-10); tip.style.left=x+'px'; tip.style.top=y+'px'}
+  function hideTip(){$('#tip').hidden=true}
+}
+$('#tlY').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;TL.y=b.dataset.y;$('#tlY').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));renderTimeline()});
+$('#tlB').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;TL.bucket=b.dataset.b;$('#tlB').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));renderTimeline()});
+$('#tlToggle').onclick=()=>{TL.open=!TL.open;$('#tlToggle').textContent=TL.open?'Hide':'Show';renderTimeline()};
+let _rz; window.addEventListener('resize',()=>{clearTimeout(_rz);_rz=setTimeout(renderTimeline,120)});
 // init
 deals=DATA.map(d=>({...d,id:idOf(d)})); load(); render();
 </script>
