@@ -143,6 +143,7 @@ table.deals tr.hl td{background:var(--panel2);box-shadow:inset 3px 0 0 var(--inp
       <div class="seg" id="tlB"><button data-b="month" class="on">By month</button><button data-b="quarter">By quarter</button></div>
       <span class="sp"></span>
       <span class="sub" id="tlSub"></span>
+      <button class="btn" id="tlJpg" title="Download the timeline as a JPEG image">Export JPEG</button>
       <button class="btn" id="tlToggle">Hide</button>
     </div>
     <div id="tlChart"></div>
@@ -377,6 +378,39 @@ function renderTimeline(){
 $('#tlY').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;TL.y=b.dataset.y;$('#tlY').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));renderTimeline()});
 $('#tlB').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;TL.bucket=b.dataset.b;$('#tlB').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));renderTimeline()});
 $('#tlToggle').onclick=()=>{TL.open=!TL.open;$('#tlToggle').textContent=TL.open?'Hide':'Show';renderTimeline()};
+// JPEG export: rasterise the SVG (styles inlined) on a canvas with a header and a text legend
+async function timelineCanvas(scale=2){
+  const svg=$('#tlChart svg'); if(!svg)throw new Error('Timeline is hidden');
+  const C={panel:cssVar('--panel'),text:cssVar('--text'),muted:cssVar('--muted'),pos:cssVar('--pos'),neg:cssVar('--neg')};
+  const cl=svg.cloneNode(true); cl.querySelectorAll('.hit').forEach(e=>e.remove());
+  cl.querySelectorAll('.lab').forEach(e=>{e.setAttribute('paint-order','stroke');e.setAttribute('stroke',C.panel);e.setAttribute('stroke-width','3');e.setAttribute('stroke-linejoin','round');e.setAttribute('fill',C.text);e.setAttribute('font-size','10.5')});
+  const FF='IBM Plex Sans, system-ui, Segoe UI, Helvetica, Arial, sans-serif';
+  cl.setAttribute('xmlns','http://www.w3.org/2000/svg'); cl.setAttribute('font-family',FF); cl.setAttribute('font-size','11');
+  const W=+svg.getAttribute('width'), H=+svg.getAttribute('height'), LH=16, PADX=16;
+  const maxPnd=Math.max(0.01,...visible().filter(d=>+d.size>0).map(d=>d.c.pndUsed));
+  const sub=`${$('#srcLabel').textContent} · valuation ${fmtD($('#valDate').value)} · default break downside ${$('#dd').value}% · ${$('#tlSub').textContent}`;
+  const leg=[`Top: ${TL.y==='spread'?'gross':'annualised'} spread at expected close (square-root scale) · bubble area = size · fill grey → red = P(no-deal) used, 0 → ${(maxPnd*100).toFixed(0)}% · hollow = size 0, clamped to axis · same-day closes may be nudged one bubble-width sideways`,
+    `Bottom: P&L by closing ${TL.bucket} · green up = size × spread if all close · red down = size × downside if all break · dark tick = expected P&L with P(no-deal) used`];
+  const meas=document.createElement('canvas').getContext('2d'); meas.font='11.5px '+FF;
+  const wrap=t=>{const out=[];let line='';t.split(' ').forEach(w=>{const c=line?line+' '+w:w;if(meas.measureText(c).width>W-2*PADX&&line){out.push(line);line=w}else line=c});if(line)out.push(line);return out};
+  const subL=wrap(sub), legL=leg.flatMap(wrap);
+  const head=34+subL.length*LH, foot=14+legL.length*LH;
+  const cv=document.createElement('canvas'); cv.width=W*scale; cv.height=(H+head+foot)*scale;
+  const ctx=cv.getContext('2d'); ctx.scale(scale,scale); ctx.fillStyle=C.panel; ctx.fillRect(0,0,W,H+head+foot);
+  ctx.fillStyle=C.text; ctx.font='600 15px '+FF; ctx.fillText('EMEA risk arb — closing timeline',PADX,24);
+  ctx.fillStyle=C.muted; ctx.font='11.5px '+FF;
+  subL.forEach((l,i)=>ctx.fillText(l,PADX,44+i*LH));
+  legL.forEach((l,i)=>ctx.fillText(l,PADX,H+head+20+i*LH));
+  const url=URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(cl)],{type:'image/svg+xml;charset=utf-8'}));
+  try{const img=new Image(); await new Promise((res,rej)=>{img.onload=res;img.onerror=()=>rej(new Error('SVG rasterisation failed'));img.src=url}); ctx.drawImage(img,0,head,W,H)}finally{URL.revokeObjectURL(url)}
+  return cv;
+}
+$('#tlJpg').onclick=async()=>{
+  if(!TL.open){status('Show the timeline first.');return}
+  try{const cv=await timelineCanvas(2);
+    cv.toBlob(b=>{if(!b){status('JPEG export failed.');return}const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`EMEA_closing_timeline_${$('#valDate').value}.jpg`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),3000);status(`JPEG exported (${cv.width}×${cv.height}).`)},'image/jpeg',0.92)}
+  catch(e){status('JPEG export failed: '+e.message)}
+};
 let _rz; window.addEventListener('resize',()=>{clearTimeout(_rz);_rz=setTimeout(renderTimeline,120)});
 // init
 deals=DATA.map(d=>({...d,id:idOf(d)})); load(); render();
